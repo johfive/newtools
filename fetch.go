@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -247,15 +248,21 @@ func fetchBrew(count int) tea.Cmd {
 			installs int
 		}
 		var candidates []candidate
-		for name, installs := range result.Items {
-			lower := strings.ToLower(name)
+		for _, item := range result.Items {
+			lower := strings.ToLower(item.Formula)
 			if brewExclusions[lower] {
 				continue
 			}
-			candidates = append(candidates, candidate{name: name, installs: installs})
+			// Parse comma-formatted count string (e.g. "271,312")
+			countStr := strings.ReplaceAll(item.Count, ",", "")
+			installs, err := strconv.Atoi(countStr)
+			if err != nil {
+				continue
+			}
+			candidates = append(candidates, candidate{name: item.Formula, installs: installs})
 		}
 
-		// Sort by installs descending, take top N for enrichment
+		// Already sorted by rank from API, but sort explicitly for safety
 		sort.Slice(candidates, func(i, j int) bool {
 			return candidates[i].installs > candidates[j].installs
 		})

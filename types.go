@@ -44,7 +44,13 @@ type GitHubOwner struct {
 
 // Homebrew API response types
 type BrewAnalyticsResponse struct {
-	Items map[string]int `json:"formulae"`
+	Items []BrewAnalyticsItem `json:"items"`
+}
+
+type BrewAnalyticsItem struct {
+	Formula string `json:"formula"`
+	Count   string `json:"count"`   // comma-formatted, e.g. "271,312"
+	Number  int    `json:"number"`
 }
 
 type BrewFormulaInfo struct {
