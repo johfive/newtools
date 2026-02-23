@@ -88,6 +88,18 @@ func (h *ToolHistory) saveHistory() error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// HiddenCount returns how many tools are currently hidden by history.
+func (h *ToolHistory) HiddenCount() int {
+	count := 0
+	now := time.Now()
+	for _, entry := range h.Tools {
+		if !entry.HiddenUntil.IsZero() && now.Before(entry.HiddenUntil) {
+			count++
+		}
+	}
+	return count
+}
+
 // IsHidden returns true if the tool should be filtered from results.
 func (h *ToolHistory) IsHidden(name string) bool {
 	entry, ok := h.Tools[strings.ToLower(name)]

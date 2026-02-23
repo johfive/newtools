@@ -130,10 +130,18 @@ func newModel(count int, showAll bool) model {
 }
 
 func (m model) Init() tea.Cmd {
+	// Request extra items to compensate for history filtering.
+	// The fetchers apply a 3x multiplier internally, but that fixed
+	// guess falls short once many tools accumulate in history.
+	fetchCount := m.count
+	if m.history != nil {
+		fetchCount += m.history.HiddenCount()
+	}
+
 	cmds := []tea.Cmd{
 		m.spinner.Tick,
-		fetchGitHub(m.count),
-		fetchBrew(m.count),
+		fetchGitHub(fetchCount),
+		fetchBrew(fetchCount),
 	}
 
 	if !m.showAll {

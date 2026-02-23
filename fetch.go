@@ -278,6 +278,9 @@ func fetchBrew(count int) tea.Cmd {
 		})
 
 		enrichCount := count * 3
+		if enrichCount > 50 {
+			enrichCount = 50
+		}
 		if enrichCount > len(candidates) {
 			enrichCount = len(candidates)
 		}
