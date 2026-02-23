@@ -40,6 +40,7 @@ func main() {
 	aFlag := fs.Bool("a", false, "show all tools including already installed ones")
 	allFlag := fs.Bool("all", false, "show all tools including already installed ones")
 	resetHistoryFlag := fs.Bool("reset-history", false, "clear the seen-tool history and exit")
+	debugFlag := fs.Bool("debug", false, "show fetch/filter statistics")
 	fs.Parse(remaining)
 
 	if *resetHistoryFlag {
@@ -58,7 +59,7 @@ func main() {
 		showAll = true
 	}
 
-	p := tea.NewProgram(newModel(count, showAll), tea.WithAltScreen())
+	p := tea.NewProgram(newModel(count, showAll, *debugFlag), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

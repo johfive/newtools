@@ -406,7 +406,23 @@ func searchGitHubURL(name string) string {
 	return ""
 }
 
-func mergeTools(github, brew []Tool, count int, installed map[string]bool, history *ToolHistory) []Tool {
+// mergeStats tracks filtering numbers for debug output.
+type mergeStats struct {
+	githubFetched  int
+	brewFetched    int
+	mergedTotal    int
+	filtInstalled  int
+	filtHidden     int
+	afterFilter    int
+	backfilled     int
+	finalCount     int
+}
+
+func mergeTools(github, brew []Tool, count int, installed map[string]bool, history *ToolHistory, debug bool) ([]Tool, mergeStats) {
+	var stats mergeStats
+	stats.githubFetched = len(github)
+	stats.brewFetched = len(brew)
+
 	index := make(map[string]*Tool)
 
 	// Add GitHub tools first
@@ -432,24 +448,30 @@ func mergeTools(github, brew []Tool, count int, installed map[string]bool, histo
 			index[key] = &tc
 		}
 	}
+	stats.mergedTotal = len(index)
 
 	// Filter out installed tools
 	if installed != nil {
 		for key := range index {
 			if installed[key] {
 				delete(index, key)
+				stats.filtInstalled++
 			}
 		}
 	}
 
-	// Filter out tools hidden by seen-history
+	// Filter out tools hidden by seen-history, but keep them as backfill candidates
+	var hidden []Tool
 	if history != nil {
-		for key := range index {
+		for key, t := range index {
 			if history.IsHidden(key) {
+				hidden = append(hidden, *t)
 				delete(index, key)
+				stats.filtHidden++
 			}
 		}
 	}
+	stats.afterFilter = len(index)
 
 	// Collect and sort by score
 	tools := make([]Tool, 0, len(index))
@@ -460,8 +482,23 @@ func mergeTools(github, brew []Tool, count int, installed map[string]bool, histo
 		return tools[i].Score > tools[j].Score
 	})
 
+	// If we don't have enough after filtering, backfill with hidden tools
+	// (better to show a repeat than "no tools found")
+	if len(tools) < count && len(hidden) > 0 {
+		sort.Slice(hidden, func(i, j int) bool {
+			return hidden[i].Score > hidden[j].Score
+		})
+		need := count - len(tools)
+		if need > len(hidden) {
+			need = len(hidden)
+		}
+		tools = append(tools, hidden[:need]...)
+		stats.backfilled = need
+	}
+
 	if len(tools) > count {
 		tools = tools[:count]
 	}
-	return tools
+	stats.finalCount = len(tools)
+	return tools, stats
 }

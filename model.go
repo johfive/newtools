@@ -26,6 +26,8 @@ type model struct {
 	state          state
 	count          int
 	showAll        bool
+	debug          bool
+	debugStats     mergeStats
 	spinner        spinner.Model
 	list           list.Model
 	detailTool     Tool
@@ -107,7 +109,7 @@ func (d toolDelegate) Render(w io.Writer, m list.Model, index int, item list.Ite
 	fmt.Fprintf(w, "%s\n%s\n%s", line1, line2, line3)
 }
 
-func newModel(count int, showAll bool) model {
+func newModel(count int, showAll, debug bool) model {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
@@ -116,6 +118,7 @@ func newModel(count int, showAll bool) model {
 		state:   stateLoading,
 		count:   count,
 		showAll: showAll,
+		debug:   debug,
 		spinner: s,
 	}
 
@@ -250,7 +253,8 @@ func (m model) checkReady() (tea.Model, tea.Cmd) {
 	if !m.showAll {
 		installed = m.installedNames
 	}
-	tools := mergeTools(m.githubTools, m.brewTools, m.count, installed, m.history)
+	tools, stats := mergeTools(m.githubTools, m.brewTools, m.count, installed, m.history, m.debug)
+	m.debugStats = stats
 
 	if len(tools) == 0 {
 		m.state = stateError
@@ -304,6 +308,16 @@ func (m model) View() string {
 	case stateDetail:
 		return m.viewDetail()
 	case stateReady:
+		if m.debug {
+			s := m.debugStats
+			debugLine := dimStyle.Render(fmt.Sprintf(
+				"  [debug] github:%d  brew:%d  merged:%d  -installed:%d  -hidden:%d  remaining:%d  backfilled:%d  showing:%d",
+				s.githubFetched, s.brewFetched, s.mergedTotal,
+				s.filtInstalled, s.filtHidden, s.afterFilter,
+				s.backfilled, s.finalCount,
+			))
+			return debugLine + "\n" + m.list.View()
+		}
 		return m.list.View()
 	}
 	return ""
