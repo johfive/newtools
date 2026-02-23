@@ -246,10 +246,20 @@ func fetchBrew(count int) tea.Cmd {
 		type candidate struct {
 			name     string
 			installs int
+			tapOwner string // non-empty for tap formulae (e.g. "steipete")
 		}
 		var candidates []candidate
 		for _, item := range result.Items {
-			lower := strings.ToLower(item.Formula)
+			name := item.Formula
+			var tapOwner string
+
+			// Tap formulae appear as "owner/tap/name" — extract the parts
+			if parts := strings.SplitN(name, "/", 3); len(parts) == 3 {
+				tapOwner = parts[0]
+				name = parts[2]
+			}
+
+			lower := strings.ToLower(name)
 			if brewExclusions[lower] {
 				continue
 			}
@@ -259,7 +269,7 @@ func fetchBrew(count int) tea.Cmd {
 			if err != nil {
 				continue
 			}
-			candidates = append(candidates, candidate{name: item.Formula, installs: installs})
+			candidates = append(candidates, candidate{name: name, installs: installs, tapOwner: tapOwner})
 		}
 
 		// Already sorted by rank from API, but sort explicitly for safety
@@ -284,14 +294,20 @@ func fetchBrew(count int) tea.Cmd {
 
 		for i, c := range candidates {
 			wg.Add(1)
-			go func(idx int, name string) {
+			go func(idx int, cand candidate) {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
 
-				desc, homepage := fetchFormulaInfo(name)
-				results[idx] = enriched{desc: desc, homepage: homepage}
-			}(i, c.name)
+				if cand.tapOwner != "" {
+					// Tap formula — construct GitHub URL directly, skip formulae.brew.sh
+					homepage := fmt.Sprintf("https://github.com/%s/%s", cand.tapOwner, cand.name)
+					results[idx] = enriched{homepage: homepage}
+				} else {
+					desc, homepage := fetchFormulaInfo(cand.name)
+					results[idx] = enriched{desc: desc, homepage: homepage}
+				}
+			}(i, c)
 		}
 		wg.Wait()
 
