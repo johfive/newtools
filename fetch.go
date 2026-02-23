@@ -301,17 +301,13 @@ func fetchBrew(count int) tea.Cmd {
 			if desc == "" {
 				desc = "A Homebrew formula"
 			}
-			homepageURL := results[i].homepage
-			if homepageURL == "" {
-				homepageURL = fmt.Sprintf("https://formulae.brew.sh/formula/%s", url.PathEscape(c.name))
-			}
 			tools = append(tools, Tool{
 				Name:        c.name,
 				Description: desc,
 				Installs:    c.installs,
 				Source:      "Homebrew",
 				Score:       float64(c.installs) / 50000,
-				URL:         homepageURL,
+				URL:         results[i].homepage,
 			})
 		}
 
@@ -335,7 +331,8 @@ func fetchFormulaInfo(name string) (desc, homepage string) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return "", ""
+		// Not in Homebrew core (likely a tap formula) — try GitHub
+		return "", searchGitHubURL(name)
 	}
 
 	var info BrewFormulaInfo
@@ -347,7 +344,47 @@ func fetchFormulaInfo(name string) (desc, homepage string) {
 	if len(desc) > 120 {
 		desc = desc[:117] + "..."
 	}
-	return desc, info.Homepage
+	homepage = info.Homepage
+	if homepage == "" {
+		homepage = searchGitHubURL(name)
+	}
+	return desc, homepage
+}
+
+// searchGitHubURL finds the best GitHub repo URL for a tool name.
+func searchGitHubURL(name string) string {
+	u := fmt.Sprintf(
+		"https://api.github.com/search/repositories?q=%s+in:name&sort=stars&per_page=1",
+		url.QueryEscape(name),
+	)
+
+	req, err := http.NewRequest("GET", u, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "newtools-cli")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return ""
+	}
+
+	var result GitHubSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil || len(result.Items) == 0 {
+		return ""
+	}
+
+	// Only use it if the repo name is a close match
+	if strings.EqualFold(result.Items[0].Name, name) {
+		return result.Items[0].HTMLURL
+	}
+	return ""
 }
 
 func mergeTools(github, brew []Tool, count int, installed map[string]bool, history *ToolHistory) []Tool {
