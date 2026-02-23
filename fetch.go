@@ -71,10 +71,10 @@ var brewExclusions = map[string]bool{
 }
 
 // queryGitHub runs a single GitHub search API call.
-func queryGitHub(query, sortBy string, perPage int) ([]GitHubRepo, error) {
+func queryGitHub(query, sortBy string, perPage, page int) ([]GitHubRepo, error) {
 	u := fmt.Sprintf(
-		"https://api.github.com/search/repositories?q=%s&sort=%s&order=desc&per_page=%d",
-		url.QueryEscape(query), sortBy, perPage,
+		"https://api.github.com/search/repositories?q=%s&sort=%s&order=desc&per_page=%d&page=%d",
+		url.QueryEscape(query), sortBy, perPage, page,
 	)
 
 	req, err := http.NewRequest("GET", u, nil)
@@ -109,8 +109,14 @@ func fetchGitHub(count int) tea.Cmd {
 		activeDate := now.AddDate(0, -3, 0).Format("2006-01-02")
 
 		perPage := count * 3
-		if perPage > 50 {
-			perPage = 50
+		if perPage > 100 {
+			perPage = 100
+		}
+
+		// Determine how many pages to fetch (2 pages when pool is large)
+		pages := 1
+		if count > 15 {
+			pages = 2
 		}
 
 		type queryResult struct {
@@ -118,55 +124,54 @@ func fetchGitHub(count int) tea.Cmd {
 			err   error
 		}
 
-		risingCh := make(chan queryResult, 1)
-		activeCh := make(chan queryResult, 1)
+		risingQuery := fmt.Sprintf("topic:cli stars:>50 created:>%s", risingDate)
+		activeQuery := fmt.Sprintf("topic:cli stars:>500 pushed:>%s", activeDate)
 
-		// Rising Stars: new repos gaining traction fast
-		go func() {
-			repos, err := queryGitHub(
-				fmt.Sprintf("topic:cli stars:>50 created:>%s", risingDate),
-				"stars", perPage,
-			)
-			risingCh <- queryResult{repos, err}
-		}()
+		// Launch all page fetches in parallel
+		resultChs := make([]chan queryResult, 0, pages*2)
+		for p := 1; p <= pages; p++ {
+			risingCh := make(chan queryResult, 1)
+			activeCh := make(chan queryResult, 1)
+			resultChs = append(resultChs, risingCh, activeCh)
 
-		// Active Established: mature repos with recent activity
-		go func() {
-			repos, err := queryGitHub(
-				fmt.Sprintf("topic:cli stars:>500 pushed:>%s", activeDate),
-				"updated", perPage,
-			)
-			activeCh <- queryResult{repos, err}
-		}()
+			go func(page int, ch chan queryResult) {
+				repos, err := queryGitHub(risingQuery, "stars", perPage, page)
+				ch <- queryResult{repos, err}
+			}(p, risingCh)
 
-		rising := <-risingCh
-		active := <-activeCh
-
-		// If both fail, return an error
-		if rising.err != nil && active.err != nil {
-			return githubResultMsg{err: fmt.Errorf("rising: %v; active: %v", rising.err, active.err)}
+			go func(page int, ch chan queryResult) {
+				repos, err := queryGitHub(activeQuery, "updated", perPage, page)
+				ch <- queryResult{repos, err}
+			}(p, activeCh)
 		}
 
-		// Deduplicate by full_name
-		seen := make(map[string]bool)
-		var allRepos []GitHubRepo
-
-		// Rising stars first (higher priority)
-		if rising.err == nil {
-			for _, r := range rising.repos {
-				key := strings.ToLower(r.FullName)
-				if !seen[key] {
-					seen[key] = true
-					allRepos = append(allRepos, r)
-				}
+		// Collect all results
+		var allResults []queryResult
+		var anyOk bool
+		for _, ch := range resultChs {
+			r := <-ch
+			allResults = append(allResults, r)
+			if r.err == nil {
+				anyOk = true
 			}
 		}
-		if active.err == nil {
-			for _, r := range active.repos {
-				key := strings.ToLower(r.FullName)
+
+		if !anyOk {
+			return githubResultMsg{err: fmt.Errorf("all GitHub queries failed: %v", allResults[0].err)}
+		}
+
+		// Deduplicate by full_name (rising pages first, then active)
+		seen := make(map[string]bool)
+		var allRepos []GitHubRepo
+		for _, r := range allResults {
+			if r.err != nil {
+				continue
+			}
+			for _, repo := range r.repos {
+				key := strings.ToLower(repo.FullName)
 				if !seen[key] {
 					seen[key] = true
-					allRepos = append(allRepos, r)
+					allRepos = append(allRepos, repo)
 				}
 			}
 		}
@@ -278,8 +283,8 @@ func fetchBrew(count int) tea.Cmd {
 		})
 
 		enrichCount := count * 3
-		if enrichCount > 50 {
-			enrichCount = 50
+		if enrichCount > 100 {
+			enrichCount = 100
 		}
 		if enrichCount > len(candidates) {
 			enrichCount = len(candidates)
@@ -293,7 +298,7 @@ func fetchBrew(count int) tea.Cmd {
 		}
 		results := make([]enriched, enrichCount)
 		var wg sync.WaitGroup
-		sem := make(chan struct{}, 5) // 5 concurrent workers
+		sem := make(chan struct{}, 10) // 10 concurrent workers
 
 		for i, c := range candidates {
 			wg.Add(1)
