@@ -338,7 +338,7 @@ func fetchFormulaDesc(name string) string {
 	return desc
 }
 
-func mergeTools(github, brew []Tool, count int, installed map[string]bool) []Tool {
+func mergeTools(github, brew []Tool, count int, installed map[string]bool, history *ToolHistory) []Tool {
 	index := make(map[string]*Tool)
 
 	// Add GitHub tools first
@@ -369,6 +369,15 @@ func mergeTools(github, brew []Tool, count int, installed map[string]bool) []Too
 	if installed != nil {
 		for key := range index {
 			if installed[key] {
+				delete(index, key)
+			}
+		}
+	}
+
+	// Filter out tools hidden by seen-history
+	if history != nil {
+		for key := range index {
+			if history.IsHidden(key) {
 				delete(index, key)
 			}
 		}

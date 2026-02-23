@@ -40,6 +40,7 @@ type model struct {
 	err            error
 	width          int
 	height         int
+	history        *ToolHistory
 }
 
 // Custom delegate for rendering list items
@@ -118,9 +119,11 @@ func newModel(count int, showAll bool) model {
 		spinner: s,
 	}
 
-	// If showing all, skip installed detection entirely
+	// If showing all, skip installed detection and history filtering
 	if showAll {
 		m.installedDone = true
+	} else {
+		m.history = loadHistory()
 	}
 
 	return m
@@ -234,12 +237,12 @@ func (m model) checkReady() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Merge available results (pass nil installed map when showAll)
+	// Merge available results (pass nil installed/history when showAll)
 	var installed map[string]bool
 	if !m.showAll {
 		installed = m.installedNames
 	}
-	tools := mergeTools(m.githubTools, m.brewTools, m.count, installed)
+	tools := mergeTools(m.githubTools, m.brewTools, m.count, installed, m.history)
 
 	if len(tools) == 0 {
 		m.state = stateError
@@ -270,6 +273,17 @@ func (m model) checkReady() (tea.Model, tea.Cmd) {
 
 	m.list = l
 	m.state = stateReady
+
+	// Record displayed tools in history
+	if m.history != nil {
+		names := make([]string, len(tools))
+		for i, t := range tools {
+			names[i] = t.Name
+		}
+		m.history.RecordSeen(names)
+		m.history.saveHistory()
+	}
+
 	return m, nil
 }
 

@@ -39,7 +39,17 @@ func main() {
 	nFlag := fs.Int("n", 0, "number of tools to display")
 	aFlag := fs.Bool("a", false, "show all tools including already installed ones")
 	allFlag := fs.Bool("all", false, "show all tools including already installed ones")
+	resetHistoryFlag := fs.Bool("reset-history", false, "clear the seen-tool history and exit")
 	fs.Parse(remaining)
+
+	if *resetHistoryFlag {
+		if err := resetHistory(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error clearing history: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Tool history cleared.")
+		os.Exit(0)
+	}
 
 	if *nFlag > 0 {
 		count = *nFlag
