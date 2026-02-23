@@ -54,8 +54,9 @@ type BrewAnalyticsItem struct {
 }
 
 type BrewFormulaInfo struct {
-	Name string `json:"name"`
-	Desc string `json:"desc"`
+	Name     string `json:"name"`
+	Desc     string `json:"desc"`
+	Homepage string `json:"homepage"`
 }
 
 // Tea messages

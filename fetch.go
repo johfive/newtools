@@ -219,9 +219,9 @@ func trendingScore(stars int, createdAt time.Time) float64 {
 
 func fetchBrew(count int) tea.Cmd {
 	return func() tea.Msg {
-		url := "https://formulae.brew.sh/api/analytics/install-on-request/30d.json"
+		analyticsURL := "https://formulae.brew.sh/api/analytics/install-on-request/30d.json"
 
-		req, err := http.NewRequest("GET", url, nil)
+		req, err := http.NewRequest("GET", analyticsURL, nil)
 		if err != nil {
 			return brewResultMsg{err: err}
 		}
@@ -273,10 +273,10 @@ func fetchBrew(count int) tea.Cmd {
 		}
 		candidates = candidates[:enrichCount]
 
-		// Enrich with descriptions using a worker pool
+		// Enrich with descriptions and homepages using a worker pool
 		type enriched struct {
-			idx  int
-			desc string
+			desc     string
+			homepage string
 		}
 		results := make([]enriched, enrichCount)
 		var wg sync.WaitGroup
@@ -289,8 +289,8 @@ func fetchBrew(count int) tea.Cmd {
 				sem <- struct{}{}
 				defer func() { <-sem }()
 
-				desc := fetchFormulaDesc(name)
-				results[idx] = enriched{idx: idx, desc: desc}
+				desc, homepage := fetchFormulaInfo(name)
+				results[idx] = enriched{desc: desc, homepage: homepage}
 			}(i, c.name)
 		}
 		wg.Wait()
@@ -301,12 +301,17 @@ func fetchBrew(count int) tea.Cmd {
 			if desc == "" {
 				desc = "A Homebrew formula"
 			}
+			homepageURL := results[i].homepage
+			if homepageURL == "" {
+				homepageURL = fmt.Sprintf("https://formulae.brew.sh/formula/%s", url.PathEscape(c.name))
+			}
 			tools = append(tools, Tool{
 				Name:        c.name,
 				Description: desc,
 				Installs:    c.installs,
 				Source:      "Homebrew",
 				Score:       float64(c.installs) / 50000,
+				URL:         homepageURL,
 			})
 		}
 
@@ -314,35 +319,35 @@ func fetchBrew(count int) tea.Cmd {
 	}
 }
 
-func fetchFormulaDesc(name string) string {
+func fetchFormulaInfo(name string) (desc, homepage string) {
 	formulaURL := fmt.Sprintf("https://formulae.brew.sh/api/formula/%s.json", url.PathEscape(name))
 
 	req, err := http.NewRequest("GET", formulaURL, nil)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	req.Header.Set("User-Agent", "newtools-cli")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return ""
+		return "", ""
 	}
 
 	var info BrewFormulaInfo
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
-		return ""
+		return "", ""
 	}
 
-	desc := info.Desc
+	desc = info.Desc
 	if len(desc) > 120 {
 		desc = desc[:117] + "..."
 	}
-	return desc
+	return desc, info.Homepage
 }
 
 func mergeTools(github, brew []Tool, count int, installed map[string]bool, history *ToolHistory) []Tool {
