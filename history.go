@@ -9,7 +9,7 @@ import (
 )
 
 const hideDuration = 3 * 24 * time.Hour // 3 days
-const seenThreshold = 2
+const seenThreshold = 1
 
 // HistoryEntry tracks how many times a tool has appeared in results.
 type HistoryEntry struct {
